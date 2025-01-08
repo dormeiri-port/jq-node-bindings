@@ -10,4 +10,5 @@ declare module '@port-labs/jq-node-bindings' {
   export function exec(json: object, input: string, options?: ExecOptions): object | Array<any> | string | number | boolean | null;
 
   export function renderRecursively(json: object, input: object | Array<any> | string | number | boolean | null, execOptions?: ExecOptions): object | Array<any> | string | number | boolean | null;
+  export function runRenderRecursively(json: object, input: object | Array<any> | string | number | boolean | null, execOptions?: ExecOptions & { timeout?: number }): object | Array<any> | string | number | boolean | null;
 }
