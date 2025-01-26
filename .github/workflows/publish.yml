@@ -20,5 +20,10 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npm publish --access=public
+        if: github.event.prerelease
+        env:
+          NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
+      - run: npm publish --access=public --tag=next
+        if: '!github.event.prerelease'
         env:
           NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
