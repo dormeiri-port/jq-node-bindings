@@ -5,27 +5,27 @@
 #include <stdio.h>
 #include <string.h>
 #include <pthread.h>
+#include <memory>
 
 #include "src/binding.h"
 
+#ifdef DEBUG_MODE
+static bool debug_enabled = true;
+#else
+static bool debug_enabled = false;
+#endif
 
-// #ifdef DEBUG_MODE
-// static bool debug_enabled = true;
-// #else
-// static bool debug_enabled = false;
-// #endif
+#define DEBUG_LOG(fmt, ...) \
+    do { if (debug_enabled) printf("[DEBUG] " fmt "\n", ##__VA_ARGS__); } while (0)
 
-// #define DEBUG_LOG(fmt, ...) \
-//     do { if (debug_enabled) printf("[DEBUG] " fmt "\n", ##__VA_ARGS__); } while (0)
+#define ASYNC_DEBUG_LOG(work, fmt, ...) \
+    do { if (debug_enabled) printf("[DEBUG][ASYNC][%p] " fmt "\n", (jv*)work, ##__VA_ARGS__); } while (0)
 
-// #define ASYNC_DEBUG_LOG(work, fmt, ...) \
-//     do { if (debug_enabled) printf("[DEBUG][ASYNC][%p] " fmt "\n", (jv*)work, ##__VA_ARGS__); } while (0)
+#define CACHE_DEBUG_LOG(cache, fmt, ...) \
+    do { if (debug_enabled) printf("[DEBUG][CACHE][%p] " fmt "\n", (void*)cache, ##__VA_ARGS__); } while (0)
 
-// #define CACHE_DEBUG_LOG(cache, fmt, ...) \
-//     do { if (debug_enabled) printf("[DEBUG][CACHE][%p] " fmt "\n", (void*)cache, ##__VA_ARGS__); } while (0)
-
-// #define WRAPPER_DEBUG_LOG(wrapper, fmt, ...) \
-//     do { if (debug_enabled) printf("[DEBUG][WRAPPER:%p] " fmt "\n", (void*)wrapper, ##__VA_ARGS__); } while (0)
+#define WRAPPER_DEBUG_LOG(wrapper, fmt, ...) \
+    do { if (debug_enabled) printf("[DEBUG][WRAPPER:%p] " fmt "\n", (void*)wrapper, ##__VA_ARGS__); } while (0)
 #ifdef ENABLE_DEBUG  // We'll use ENABLE_DEBUG as our flag name
 #define DEBUG_ENABLED 1
 #else
@@ -61,7 +61,7 @@ static size_t validate_cache_size(size_t requested_size) {
     size_t min_size = get_uv_thread_pool_size();
     size_t new_size = std::max(requested_size, min_size);
     if(requested_size < min_size){
-        DEBUG_LOG("Requested cache size %zu adjusted to minimum %zu (UV thread pool size)",requested_size,min_size); 
+        DEBUG_LOG("Requested cache size %zu adjusted to minimum %zu (UV thread pool size)",requested_size,min_size);
         return min_size;
     }
     return new_size;
@@ -69,7 +69,7 @@ static size_t validate_cache_size(size_t requested_size) {
 
 /* err_data and throw_err_cb to get jq error message*/
 struct err_data {
-    char buf[4096]; 
+    char buf[4096];
 };
 void throw_err_cb(void* data, jv msg) {
   struct err_data *err_data = (struct err_data *)data;
@@ -99,8 +99,8 @@ public:
     std::string filter_name;
     std::list<JqFilterWrapper*>::iterator cache_pos;
     /* init mutex and set filter_name */
-    explicit JqFilterWrapper(jq_state* jq_, std::string filter_name_) : 
-        filter_name(filter_name_), 
+    explicit JqFilterWrapper(jq_state* jq_, std::string filter_name_) :
+        filter_name(filter_name_),
         jq(jq_) {
         DEBUG_LOG("[WRAPPER:%p] Creating wrapper for filter: %s", (void*)this, filter_name_.c_str());
         pthread_mutex_init(&filter_mutex, nullptr);
@@ -137,7 +137,7 @@ private:
 
 template <class KEY_T> class LRUCache {
 private:
-    pthread_mutex_t cache_mutex; 
+    pthread_mutex_t cache_mutex;
     std::list<JqFilterWrapper*> item_list;
     std::unordered_map<KEY_T,  JqFilterWrapper*> item_map;
     std::unordered_map<JqFilterWrapper*,  size_t> item_refcnt;
@@ -171,8 +171,7 @@ private:
             item_refcnt.erase(wrapper);
             item_list.pop_back();
             CACHE_DEBUG_LOG((void*)wrapper, "Deleting wrapper");
-            delete wrapper; 
-        
+            delete wrapper;
         }
         CACHE_DEBUG_LOG(this, "Cleanup complete. New size=%zu", item_map.size());
         pthread_mutex_unlock(&cache_mutex);
@@ -205,7 +204,7 @@ public:
 
         auto it = item_map.find(key);
         if (it != item_map.end()) {
-            CACHE_DEBUG_LOG((void*)val, "Replacing existing entry for key='%s', old_ptr=%p , new_ptr=%p", key.c_str(), (void*)it->second, (void*)val);
+            CACHE_DEBUG_LOG((void*)val, "Replacing existing entry for key='%s', old_ptr=%p, new_ptr=%p", key.c_str(), (void*)it->second, (void*)val);
             item_map.erase(it);
         }
         item_list.push_front(val);
@@ -217,7 +216,7 @@ public:
         CACHE_DEBUG_LOG((void*)val, "Released cache lock after put");
         clean();
     }
- 
+
     JqFilterWrapper* get(const KEY_T &key) {
         pthread_mutex_lock(&cache_mutex);
         CACHE_DEBUG_LOG(nullptr, "Got cache lock for get operation, key='%s'", key.c_str());
@@ -234,7 +233,7 @@ public:
         item_list.push_front(wrapper);
         wrapper->cache_pos = item_list.begin();
         inc_refcnt(wrapper);
-        CACHE_DEBUG_LOG((void*)wrapper, "Cache hit for jq wrapper,pointer=%p,name=%s,refcnt=%zu", 
+        CACHE_DEBUG_LOG((void*)wrapper, "Cache hit for jq wrapper,pointer=%p,name=%s,refcnt=%zu",
                  (void*)wrapper, wrapper->filter_name.c_str(),item_refcnt[wrapper]);
         pthread_mutex_unlock(&cache_mutex);
         CACHE_DEBUG_LOG((void*)wrapper, "Released cache lock after get");
@@ -385,7 +384,7 @@ napi_value ExecSync(napi_env env, napi_callback_info info) {
     }
 
     struct err_data err_msg;
-    JqFilterWrapper* wrapper; 
+    JqFilterWrapper* wrapper;
 
     DEBUG_LOG("[SYNC] ExecSync called with filter='%s'", filter.c_str());
 
@@ -404,7 +403,7 @@ napi_value ExecSync(napi_env env, napi_callback_info info) {
             return nullptr;
         }
         wrapper = new JqFilterWrapper(jq, filter);
-        cache.put(filter, wrapper );
+        cache.put(filter, wrapper);
     }
 
     jv input = jv_parse(json.c_str());
@@ -418,7 +417,7 @@ napi_value ExecSync(napi_env env, napi_callback_info info) {
     wrapper->lock();
 
     jq_start(wrapper->get_jq(), input, 0);
-    jv result = jq_next(wrapper->get_jq());
+    jv result = jq_next(wrapper->get_jq(), NULL);
 
     napi_value ret;
     napi_create_object(env, &ret);
@@ -442,6 +441,7 @@ struct AsyncWork {
     /* input */
     std::string json;
     std::string filter;
+    napi_property_descriptor aborted_accessor;
     /* promise */
     napi_deferred deferred;
     napi_async_work async_work;
@@ -457,13 +457,12 @@ void ExecuteAsync(napi_env env, void* data) {
     ASYNC_DEBUG_LOG(work, "ExecuteAsync started for filter='%s'", work->filter.c_str());
 
     struct err_data err_msg;
-    JqFilterWrapper* wrapper; 
+    JqFilterWrapper* wrapper;
 
     wrapper = cache.get(work->filter);
     if (wrapper == nullptr) {
         ASYNC_DEBUG_LOG(work, "Creating new jq wrapper for filter='%s'", work->filter.c_str());
-        jq_state* jq;
-        jq = jq_init();
+        jq_state* jq = jq_init();
         jq_set_error_cb(jq, throw_err_cb, &err_msg);
         if (!jq_compile(jq, work->filter.c_str())) {
             ASYNC_DEBUG_LOG(work, "jq compilation failed");
@@ -474,7 +473,7 @@ void ExecuteAsync(napi_env env, void* data) {
         wrapper=new JqFilterWrapper(jq, work->filter);
         cache.put(work->filter, wrapper );
     }
-    
+
     jv input = jv_parse_sized(work->json.c_str(), work->json.size());
     ASYNC_DEBUG_LOG(work, "JSON input parsed");
 
@@ -488,11 +487,12 @@ void ExecuteAsync(napi_env env, void* data) {
 
         return;
     }
-    wrapper->lock(); 
+    wrapper->lock();
+
     jq_start(wrapper->get_jq(), input, 0);
     ASYNC_DEBUG_LOG(work, "jq execution started");
 
-    jv result=jq_next(wrapper->get_jq());
+    jv result=jq_next(wrapper->get_jq(), NULL); // TODO: Pass accessor
     if(jv_get_kind(result) == JV_KIND_INVALID){
         jv msg = jv_invalid_get_msg(jv_copy(result));
 
@@ -536,6 +536,7 @@ void CompleteAsync(napi_env env, napi_status status, void* data) {
    bool cleanup_done = false;
 
     auto cleanup = [&]() {
+
         if (!cleanup_done) {
             napi_delete_async_work(env, work->async_work);
             ASYNC_DEBUG_LOG(work, "Deleting AsyncWork");
@@ -585,19 +586,39 @@ void CompleteAsync(napi_env env, napi_status status, void* data) {
     napi_close_handle_scope(env, scope);
 }
 
+napi_value GetAborted(napi_env env, napi_callback_info info) {
+    napi_value thisArg;
+    napi_get_cb_info(env, info, nullptr, nullptr, &thisArg, nullptr);
+    napi_value result;
+    napi_status status = napi_get_named_property(env, thisArg, "aborted", &result);
+    return result;
+}
 
+// Function to manually retrieve the boolean from the descriptor
+bool GetBooleanFromDescriptor(napi_env env, napi_property_descriptor* desc, napi_callback_info info) {
+    if (desc->getter == nullptr) {
+      printf("Getter is null\n");
+      return false;
+    }
+
+    napi_value boolValue = desc->getter(env, info);
+
+    bool result;
+    napi_get_value_bool(env, boolValue, &result);
+    return result;
+}
 
 napi_value ExecAsync(napi_env env, napi_callback_info info) {
     napi_handle_scope scope;
 
-    size_t argc = 2;
-    napi_value args[2];
+    size_t argc = 3;
+    napi_value args[3];
     napi_value promise;
 
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
     if (argc < 2) {
-        napi_throw_type_error(env, nullptr, "Wrong number of arguments. Expected 2.");
+        napi_throw_type_error(env, nullptr, "Wrong number of arguments. Expected at least 2.");
         return nullptr;
     }
 
@@ -612,6 +633,88 @@ napi_value ExecAsync(napi_env env, napi_callback_info info) {
         napi_throw_error(env, nullptr, "Invalid filter input");
         return nullptr;
     }
+
+
+    if (argc > 2) {
+      /*std::shared_ptr<bool> managed_abortref = std::make_shared<bool>(false);*/
+      /*work->managed_abortref = managed_abortref;*/
+      napi_value abortsignal = args[2];
+      /*napi_value addEventListenerValue;*/
+
+      /*if (napi_get_named_property(env, abortsignal, "addEventListener", &addEventListenerValue) == napi_ok) {*/
+      /*  napi_value onabort_callback = Napi::Function::New(env, [onabort_callback, managed_abortref](const Napi::CallbackInfo& info) {*/
+      /*    *managed_abortref = true;*/
+      /*  });*/
+      /**/
+      /*  Napi::Object options = Napi::Object::New(env);*/
+      /*  options.Set("once", Napi::Boolean::New(env, true));*/
+      /**/
+      /*  napi_value argv[3] = {*/
+      /*    Napi::String::New(env, "abort"),*/
+      /*    onabort_callback,*/
+      /*    options*/
+      /*  };*/
+      /*  napi_value result;*/
+      /*  napi_call_function(env, abortsignal, addEventListenerValue, 3, argv, &result);*/
+      /*} else {*/
+      /*  napi_throw_error(env, nullptr, "AbortSignal is not an event emitter");*/
+      /*  return nullptr;*/
+      /*}*/
+
+      /*bool aborted;*/
+      /*napi_value signal_aborted;*/
+      /*if(napi_get_named_property(env, abortsignal, "aborted", &signal_aborted) == napi_ok*/
+      /*    && napi_get_value_bool(env, signal_aborted, &aborted) == napi_ok*/
+      /*) {*/
+      /*  if (aborted) {*/
+      /*    Napi::Promise::Deferred deferred = Napi::Promise::Deferred::New(env);*/
+      /*    deferred.Reject(Napi::String::New(env, "AbortSignal is already aborted"));*/
+      /*    return deferred.Promise();*/
+      /*  }*/
+      /*} else {*/
+      /*  napi_throw_error(env, nullptr, "Failed to get aborted property from AbortSignal");*/
+      /*  return nullptr;*/
+      /*}*/
+
+      bool has_aborted;
+      napi_status status = napi_has_named_property(env, abortsignal, "__a", &has_aborted);
+      if (status != napi_ok) {
+          napi_throw_error(env, nullptr, "Failed to check if property is defined");
+          return nullptr;
+      }
+      if (has_aborted) {
+        napi_value aborted_accessor;
+        status = napi_get_named_property(env, abortsignal, "__a", &aborted_accessor);
+        if (status != napi_ok) {
+          napi_throw_error(env, nullptr, "Failed to check if property is defined");
+          return nullptr;
+        }
+        work->aborted_accessor = aborted_accessor;
+      }
+      printf("Property not defined\n");
+      napi_property_descriptor boolProp = {
+        "__a",
+        nullptr,
+        nullptr,
+        GetAborted,
+        nullptr,
+        nullptr,
+        napi_default,
+        nullptr
+      };
+      status = napi_define_properties(env, abortsignal, 1, &boolProp);
+      work->aborted_accessor = boolProp;
+      if(status != napi_ok){
+        napi_throw_error(env, nullptr, "Failed to define property");
+        return nullptr;
+      }
+    } else {
+      /*work->managed_abortref = nullptr;*/
+    }
+
+    bool x = GetBooleanFromDescriptor(env, &work->aborted_accessor, info);
+    printf("Value of x: %d\n", x);
+
     work->success = false;
 
     napi_create_promise(env, &work->deferred, &promise);
@@ -629,18 +732,18 @@ napi_value ExecAsync(napi_env env, napi_callback_info info) {
 //     size_t argc = 1;
 //     napi_value args[1];
 //     bool enable;
-    
+
 //     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-    
+
 //     if (argc < 1) {
 //         napi_throw_type_error(env, nullptr, "Wrong number of arguments");
 //         return nullptr;
 //     }
-    
+
 //     napi_get_value_bool(env, args[0], &enable);
 //     debug_enabled = enable;
 //     DEBUG_LOG("Debug mode %s", enable ? "enabled" : "disabled");
-    
+
 //     napi_value result;
 //     napi_get_boolean(env, debug_enabled, &result);
 //     return result;
@@ -648,8 +751,8 @@ napi_value ExecAsync(napi_env env, napi_callback_info info) {
 
 // napi_value GetCacheStats(napi_env env, napi_callback_info info) {
 //     napi_value result;
-//     napi_create_object(env, &result);  
-//     struct rusage usage;    
+//     napi_create_object(env, &result);
+//     struct rusage usage;
 //     getrusage(RUSAGE_SELF, &usage);
 //     napi_value maxrss;
 //     napi_create_int64(env, usage.ru_maxrss, &maxrss);
@@ -661,14 +764,14 @@ napi_value SetCacheSize(napi_env env, napi_callback_info info) {
     size_t argc = 1;
     napi_value args[1];
     int64_t new_size;
-    
+
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
     napi_status status;
     if (argc < 1) {
         napi_throw_type_error(env, nullptr, "Wrong number of arguments");
         return nullptr;
     }
-    
+
     status=napi_get_value_int64(env, args[0], &new_size);
     if(!CheckNapiStatus(env,status,"error loading int64")){
         return nullptr;
@@ -677,13 +780,13 @@ napi_value SetCacheSize(napi_env env, napi_callback_info info) {
         napi_throw_error(env, nullptr, "Cache size must be positive");
         return nullptr;
     }
-    
+
     DEBUG_LOG("Changing cache size from %zu to %lld", global_cache_size, new_size);
     size_t old_size = global_cache_size;
 
     global_cache_size = validate_cache_size(static_cast<size_t>(new_size));
     cache.resize(global_cache_size);  // Update cache size
-    
+
     napi_value result;
     napi_create_int64(env, global_cache_size, &result);
     return result;
